@@ -59,22 +59,48 @@ if prompt := st.chat_input("Stellen Sie Ihre Frage zum DNBLab oder zur DNB..."):
         try:
             with st.spinner("Antwort wird generiert..."):
                 response = requests.post(API_URL, json=payload, timeout=30)
-                if response.status_code != 200:
-                    st.error(f"❌ Fehler: {response.status_code} - {response.text}")
-                    st.session_state.messages.append({"role": "assistant", "content": f"Fehler: {response.status_code} - {response.text}"})
+
+                # --- Debug: Print raw response ---
+                st.write(f"**Status Code:** {response.status_code}")
+                st.write(f"**Content-Type:** {response.headers.get('Content-Type', 'unknown')}")
+
+                # --- Check for empty response ---
+                if not response.text.strip():
+                    st.error("❌ Leere Antwort vom Server erhalten.")
+                    st.session_state.messages.append({"role": "assistant", "content": "Leere Antwort vom Server."})
+                    raise ValueError("Empty response")
+
+                # --- Check if response is JSON ---
+                if "application/json" in response.headers.get("Content-Type", ""):
+                    try:
+                        data = response.json()
+                        if "message" in data:
+                            full_response = data["message"]
+                            st.markdown(full_response)
+                            st.session_state.messages.append({"role": "assistant", "content": full_response})
+                        else:
+                            st.error("❌ Kein 'message' Feld in der Antwort gefunden.")
+                            st.session_state.messages.append({"role": "assistant", "content": "Keine Antwort erhalten."})
+                    except json.JSONDecodeError as e:
+                        st.error(f"❌ JSON-Fehler: {e}")
+                        st.write("Raw response:", response.text)
+                        st.session_state.messages.append({"role": "assistant", "content": f"JSON-Fehler: {e}"})
                 else:
-                    # Parse JSON response
-                    data = response.json()
-                    if "message" in data:
-                        full_response = data["message"]
-                        st.markdown(full_response)
-                        st.session_state.messages.append({"role": "assistant", "content": full_response})
-                    else:
-                        st.error("❌ Keine Antwort im API-Response gefunden.")
-                        st.session_state.messages.append({"role": "assistant", "content": "Keine Antwort erhalten."})
+                    # --- Handle non-JSON (HTML, text, etc.) ---
+                    st.warning("❌ Antwort ist kein JSON. Möglicherweise ein Fehler oder HTML.")
+                    st.write("Raw response:", response.text)
+                    st.session_state.messages.append({"role": "assistant", "content": f"API-Response: {response.status_code} - {response.text[:200]}..."})
+
+        except requests.exceptions.Timeout:
+            st.error("❌ Timeout beim Abrufen der Antwort. Versuchen Sie es später erneut.")
+            st.session_state.messages.append({"role": "assistant", "content": "Timeout beim Abrufen der Antwort."})
+        except requests.exceptions.RequestException as e:
+            st.error(f"❌ Netzwerkfehler: {e}")
+            st.session_state.messages.append({"role": "assistant", "content": f"Netzwerkfehler: {e}"})
         except Exception as e:
-            st.error(f"❌ Fehler beim Abrufen der Antwort: {str(e)}")
-            st.session_state.messages.append({"role": "assistant", "content": f"Fehler: {str(e)}"})
+            st.error(f"❌ Unbekannter Fehler: {e}")
+            st.session_state.messages.append({"role": "assistant", "content": f"Unbekannter Fehler: {e}"})
+
 
 # --- Footer ---
 st.markdown(
