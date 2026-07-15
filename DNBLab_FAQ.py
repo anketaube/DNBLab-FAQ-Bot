@@ -1,4 +1,7 @@
 import streamlit as st
+import requests
+import json
+from datetime import datetime
 
 # Set page config
 st.set_page_config(
@@ -9,56 +12,77 @@ st.set_page_config(
 
 # Title
 st.title("💬 DNBLab FAQ Bot")
-
-# Subtitle
 st.markdown(
     """
-    <div style="text-align: center; margin-bottom: 30px; font-size: 16px; color: #555;">
-        Ihr persönlicher Assistent für Fragen zur Deutschen Nationalbibliothek (DNB) und dem DNBLab.
+    <div style="text-align: center; font-size: 14px; color: #666;">
+        Ihr persönlicher Assistent für Fragen zur Deutschen Nationalbibliothek (DNB) und dem DNBLab.  
+        <br>Modell: <strong>Qwen 3 Omni 30B A3B Instruct</strong> (Kisski GWDG)
     </div>
     """,
     unsafe_allow_html=True
 )
 
-# Retrieve API key from Streamlit Secrets
-api_key = st.secrets["KISSKI_API_KEY"]
+# --- API Configuration ---
+API_URL = "https://chat-ai.academiccloud.de/chat"
+API_KEY = st.secrets["KISSKI_API_KEY"]  # Securely loaded from Streamlit Secrets
 
-# Build the chatbot URL with the API key
-chatbot_url = (
-    "https://chat-ai.academiccloud.de/chat?"
-    "arcana=anke.taube%2FFAQ&"
-    "model=qwen3-30b-a3b-instruct-2507&"
-    "enable_tools=true&"
-    f"api_key={api_key}"
-)
+# --- Session State ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-# Button to open the chatbot in a new tab
-st.markdown(
-    f"""
-    <div style="text-align: center; margin-top: 20px;">
-        <a href="{chatbot_url}" 
-           target="_blank" 
-           style="display: inline-block; padding: 14px 28px; font-size: 16px; font-weight: 600; color: white; 
-                  background-color: #007BFF; border: none; border-radius: 10px; text-decoration: none; 
-                  box-shadow: 0 4px 8px rgba(0, 123, 255, 0.2); transition: all 0.3s ease;">
-            🔍 Öffne den DNBLab FAQ Bot (Qwen 3 Omni 30B A3B Instruct)
-        </a>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+# --- Display Chat Messages ---
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-# Optional: Add a small description
-st.markdown(
-    """
-    <div style="text-align: center; margin-top: 15px; font-size: 14px; color: #666;">
-        Der Bot basiert auf dem Qwen 3 Omni 30B A3B Instruct Modell von Kisski GWDG.
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+# --- User Input ---
+if prompt := st.chat_input("Stellen Sie Ihre Frage zum DNBLab oder zur DNB..."):
+    # Add user message
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-# Footer
+    # Prepare API request
+    payload = {
+        "arcana": "anke.taube%2FFAQ",
+        "model": "qwen3-30b-a3b-instruct-2507",
+        "enable_tools": True,
+        "api_key": API_KEY,
+        "messages": [
+            {"role": "system", "content": "Sie sind ein hilfreicher Assistent für die Deutsche Nationalbibliothek (DNB) und das DNBLab. Beantworten Sie Fragen präzise und basierend auf den verfügbaren Daten."}
+        ] + [
+            {"role": m["role"], "content": m["content"]} for m in st.session_state.messages
+        ]
+    }
+
+    # Send request to Kisski GWDG API
+    with st.chat_message("assistant"):
+        message_placeholder = st.empty()
+        full_response = ""
+        try:
+            with requests.post(API_URL, json=payload, stream=True) as response:
+                if response.status_code != 200:
+                    message_placeholder.markdown(f"❌ Fehler: {response.status_code} - {response.text}")
+                    st.session_state.messages.append({"role": "assistant", "content": f"Fehler: {response.status_code} - {response.text}"})
+                else:
+                    for chunk in response.iter_lines():
+                        if chunk:
+                            decoded_chunk = chunk.decode('utf-8')
+                            if decoded_chunk.startswith("data: "):
+                                try:
+                                    json_data = json.loads(decoded_chunk[5:])
+                                    if "message" in json_data:
+                                        full_response += json_data["message"]
+                                        message_placeholder.markdown(full_response + "▌")
+                                except:
+                                    continue
+            message_placeholder.markdown(full_response)
+            st.session_state.messages.append({"role": "assistant", "content": full_response})
+        except Exception as e:
+            message_placeholder.markdown(f"❌ Fehler beim Abrufen der Antwort: {str(e)}")
+            st.session_state.messages.append({"role": "assistant", "content": f"Fehler: {str(e)}"})
+
+# --- Footer ---
 st.markdown(
     """
     <div style="text-align: center; margin-top: 40px; font-size: 12px; color: #999;">
