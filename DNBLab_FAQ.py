@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 import json
-from datetime import datetime
 
 # Set page config
 st.set_page_config(
@@ -24,7 +23,7 @@ st.markdown(
 
 # --- API Configuration ---
 API_URL = "https://chat-ai.academiccloud.de/chat"
-API_KEY = st.secrets["KISSKI_API_KEY"]  # Securely loaded from Streamlit Secrets
+API_KEY = st.secrets["KISSKI_API_KEY"]
 
 # --- Session State ---
 if "messages" not in st.session_state:
@@ -57,29 +56,24 @@ if prompt := st.chat_input("Stellen Sie Ihre Frage zum DNBLab oder zur DNB..."):
 
     # Send request to Kisski GWDG API
     with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        full_response = ""
         try:
-            with requests.post(API_URL, json=payload, stream=True) as response:
+            with st.spinner("Antwort wird generiert..."):
+                response = requests.post(API_URL, json=payload, timeout=30)
                 if response.status_code != 200:
-                    message_placeholder.markdown(f"❌ Fehler: {response.status_code} - {response.text}")
+                    st.error(f"❌ Fehler: {response.status_code} - {response.text}")
                     st.session_state.messages.append({"role": "assistant", "content": f"Fehler: {response.status_code} - {response.text}"})
                 else:
-                    for chunk in response.iter_lines():
-                        if chunk:
-                            decoded_chunk = chunk.decode('utf-8')
-                            if decoded_chunk.startswith("data: "):
-                                try:
-                                    json_data = json.loads(decoded_chunk[5:])
-                                    if "message" in json_data:
-                                        full_response += json_data["message"]
-                                        message_placeholder.markdown(full_response + "▌")
-                                except:
-                                    continue
-            message_placeholder.markdown(full_response)
-            st.session_state.messages.append({"role": "assistant", "content": full_response})
+                    # Parse JSON response
+                    data = response.json()
+                    if "message" in data:
+                        full_response = data["message"]
+                        st.markdown(full_response)
+                        st.session_state.messages.append({"role": "assistant", "content": full_response})
+                    else:
+                        st.error("❌ Keine Antwort im API-Response gefunden.")
+                        st.session_state.messages.append({"role": "assistant", "content": "Keine Antwort erhalten."})
         except Exception as e:
-            message_placeholder.markdown(f"❌ Fehler beim Abrufen der Antwort: {str(e)}")
+            st.error(f"❌ Fehler beim Abrufen der Antwort: {str(e)}")
             st.session_state.messages.append({"role": "assistant", "content": f"Fehler: {str(e)}"})
 
 # --- Footer ---
